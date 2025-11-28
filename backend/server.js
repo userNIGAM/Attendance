@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 5000;
 const AUTO_CRON = process.env.AUTO_EXPORT_CRON || "0 23 * * *"; // default daily at 23:00 UTC
 
 const corsOptions = {
-  origin: ["http://localhost:5173", "https://attendance-six-pi.vercel.app/"],
+  origin: ["http://localhost:5173", "https://attendance-six-pi.vercel.app"],
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true,
 };
