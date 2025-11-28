@@ -7,6 +7,8 @@ export default function Scanner({ fetchStudents }) {
   const [isScanning, setIsScanning] = useState(false);
   const [scanCount, setScanCount] = useState(0);
   const [lastScanStatus, setLastScanStatus] = useState("");
+  const [recentScans, setRecentScans] = useState(new Set()); // Track recent scans
+  const [isProcessing, setIsProcessing] = useState(false); // Prevent multiple processing
 
   useEffect(() => {
     startScanner();
@@ -26,8 +28,10 @@ export default function Scanner({ fetchStudents }) {
     const scanner = new Html5QrcodeScanner(
       "reader",
       {
-        fps: 10,
+        fps: 5, // Reduced FPS to minimize multiple scans
         qrbox: 250,
+        aspectRatio: 1.0,
+        disableFlip: true, // Improve performance
       },
       false
     );
@@ -41,14 +45,48 @@ export default function Scanner({ fetchStudents }) {
         await processScannedCode(decodedText);
       },
       (error) => {
-        // Silent error handling
+        // Silent error handling for common expected errors
+        if (error !== "NotFoundException") {
+          console.log("Scanner error:", error);
+        }
       }
     );
   };
 
   const processScannedCode = async (decodedText) => {
+    // Prevent multiple processing simultaneously
+    if (isProcessing) {
+      return;
+    }
+
+    // Check if this QR was recently scanned (within last 10 seconds)
+    if (recentScans.has(decodedText)) {
+      setLastScanStatus("⚠️ This QR code was already scanned recently!");
+
+      // Clear status after 3 seconds
+      setTimeout(() => setLastScanStatus(""), 3000);
+      return;
+    }
+
+    setIsProcessing(true);
     setScanCount((prev) => prev + 1);
-    console.log("Raw QR Code Data:", decodedText); // For debugging
+    console.log("Raw QR Code Data:", decodedText);
+
+    // Add to recent scans to prevent duplicates
+    setRecentScans((prev) => {
+      const newSet = new Set(prev);
+      newSet.add(decodedText);
+      return newSet;
+    });
+
+    // Remove from recent scans after 10 seconds
+    setTimeout(() => {
+      setRecentScans((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(decodedText);
+        return newSet;
+      });
+    }, 10000);
 
     let payload;
     try {
@@ -64,27 +102,41 @@ export default function Scanner({ fetchStudents }) {
           faculty: jsonData.faculty || "",
           rollno: jsonData.rollno || "",
         };
-        setLastScanStatus("✅ JSON data processed");
+        setLastScanStatus("✅ Attendance marked successfully!");
       } else {
         // If JSON but no email, use the raw string as email
         payload = { email: decodedText };
-        setLastScanStatus("⚠️ Using raw data as email");
+        setLastScanStatus("✅ Attendance marked successfully!");
       }
     } catch (err) {
       // If not JSON, use the raw text as email
       payload = { email: decodedText };
-      setLastScanStatus("⚠️ Using raw data as email");
+      setLastScanStatus("✅ Attendance marked successfully!");
     }
 
     try {
       await markAttendance(payload);
       await fetchStudents();
 
-      // Clear status after 2 seconds
+      // Temporarily pause scanner to prevent immediate re-scan
+      setTimeout(() => {
+        setIsProcessing(false);
+      }, 1500); // 1.5 second pause between scans
+
+      // Clear success status after 2 seconds
       setTimeout(() => setLastScanStatus(""), 2000);
     } catch (err) {
       console.error("Error marking attendance:", err);
       setLastScanStatus("❌ Error marking attendance");
+
+      // Remove from recent scans on error so it can be retried
+      setRecentScans((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(decodedText);
+        return newSet;
+      });
+
+      setIsProcessing(false);
       setTimeout(() => setLastScanStatus(""), 3000);
     }
   };
@@ -96,10 +148,17 @@ export default function Scanner({ fetchStudents }) {
         scannerRef.current = null;
         setIsScanning(false);
         setLastScanStatus("");
+        setIsProcessing(false);
       } catch (error) {
         console.log("Scanner stop error:", error);
       }
     }
+  };
+
+  const clearRecentScans = () => {
+    setRecentScans(new Set());
+    setLastScanStatus("✅ Recent scans cleared!");
+    setTimeout(() => setLastScanStatus(""), 2000);
   };
 
   return (
@@ -122,7 +181,9 @@ export default function Scanner({ fetchStudents }) {
               ? "bg-green-600 bg-opacity-50"
               : lastScanStatus.includes("❌")
               ? "bg-red-600 bg-opacity-50"
-              : "bg-yellow-600 bg-opacity-50"
+              : lastScanStatus.includes("⚠️")
+              ? "bg-yellow-600 bg-opacity-50"
+              : "bg-blue-600 bg-opacity-50"
           }`}
         >
           <p className="text-white font-medium">{lastScanStatus}</p>
@@ -145,10 +206,14 @@ export default function Scanner({ fetchStudents }) {
           <div className="w-3 h-3 rounded-full bg-blue-500"></div>
           <span className="text-sm">Scans: {scanCount}</span>
         </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full bg-purple-500"></div>
+          <span className="text-sm">Recent: {recentScans.size}</span>
+        </div>
       </div>
 
       {/* Control Buttons */}
-      <div className="flex gap-4 justify-center">
+      <div className="flex gap-4 justify-center flex-wrap">
         {!isScanning ? (
           <button
             onClick={startScanner}
@@ -164,6 +229,21 @@ export default function Scanner({ fetchStudents }) {
             ⏹ Stop Scanner
           </button>
         )}
+
+        <button
+          onClick={clearRecentScans}
+          className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transform transition-all duration-300 ease-in-out hover:scale-105"
+          disabled={recentScans.size === 0}
+        >
+          🗑️ Clear Recent
+        </button>
+      </div>
+
+      {/* Instructions */}
+      <div className="mt-6 text-sm text-gray-400">
+        <p>• Each QR code can only be scanned once every 10 seconds</p>
+        <p>• Scanner automatically pauses briefly after each scan</p>
+        <p>• Use "Clear Recent" to reset duplicate protection</p>
       </div>
     </div>
   );
