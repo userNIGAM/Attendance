@@ -15,6 +15,7 @@ const AUTO_CRON = process.env.AUTO_EXPORT_CRON || "0 23 * * *"; // default daily
 
 const corsOptions = {
   origin: ["http://localhost:5173", "https://attendance-six-pi.vercel.app/"],
+  methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true,
 };
 
