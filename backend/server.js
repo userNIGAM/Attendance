@@ -13,7 +13,13 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const AUTO_CRON = process.env.AUTO_EXPORT_CRON || "0 23 * * *"; // default daily at 23:00 UTC
 
-app.use(cors());
+app.use(
+  cors({
+    origin: "https://attendance-six-pi.vercel.app",
+    methods: ["GET", "POST"],
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 // ensure tmp dir exists for exports
