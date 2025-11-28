@@ -19,7 +19,7 @@ const corsOptions = {
   credentials: true,
 };
 
-app.use("*", cors(corsOptions));
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // ensure tmp dir exists for exports
