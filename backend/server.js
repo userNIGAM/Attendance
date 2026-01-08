@@ -1,54 +1,44 @@
 import express from "express";
-import mongoose from "mongoose";
 import cors from "cors";
+import dotenv from "dotenv";
+import path from "path";
 import fs from "fs";
-import xlsx from "xlsx";
-import Student from "./models/Student.js";
+import { ConnectDB } from "./config/db.js";
+import studentRoutes from "./routes/studentRoutes.js";
+import { startScheduler } from "./cron/scheduler.js";
+
+dotenv.config();
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
+const AUTO_CRON = process.env.AUTO_EXPORT_CRON || "0 23 * * *"; // default daily at 23:00 UTC
 
-app.use(cors());
+const corsOptions = {
+  origin: ["http://localhost:5173", "https://attendance-six-pi.vercel.app"],
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
-mongoose
-  .connect("mongodb://localhost:27017/attendanceDB")
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch((err) => console.log("❌ MongoDB error:", err));
+// ensure tmp dir exists for exports
+const tmpDir = path.resolve("./tmp");
+if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir);
 
-// 📥 Route to add student after scanning QR
-app.post("/api/scan", async (req, res) => {
-  const { email } = req.body;
-  try {
-    const student = await Student.findOne({ email });
-    if (!student) return res.status(404).json({ message: "Student not found" });
-    student.present = true;
-    await student.save();
-    res.status(200).json({ message: "Attendance marked", student });
-  } catch (error) {
-    res.status(500).json({ error });
-  }
-});
-// 📤 Route to export present students to Excel
-app.get("/api/export", async (req, res) => {
-  try {
-    const students = await Student.find({ present: true });
-    const data = students.map((s) => ({
-      Name: s.name,
-      Email: s.email,
-      Semester: s.semester,
-    }));
-    const ws = xlsx.utils.json_to_sheet(data);
-    const wb = xlsx.utils.book_new();
-    xlsx.utils.book_append_sheet(wb, ws, "Attendance");
-    const filePath = "./attendance.xlsx";
-    xlsx.writeFile(wb, filePath);
-    res.download(filePath);
-  } catch (error) {
-    res.status(500).json({ error });
-  }
-});
+// connect db
+ConnectDB();
 
-app.listen(PORT, () =>
-  console.log(`🚀 Server running at http://localhost:${PORT}`)
-);
+// routes
+app.use("/api", studentRoutes);
+
+// health
+app.get("/", (req, res) => res.send("Attendance backend up"));
+
+// start scheduler
+startScheduler(AUTO_CRON);
+
+// start server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
